@@ -7,9 +7,13 @@ import java.net.UnknownHostException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 import org.apache.commons.net.ntp.NTPUDPClient;
@@ -29,6 +33,7 @@ import reactor.core.publisher.FluxSink;
 public final class NTPClock extends Clock {
 
   private static final Logger LOG = LoggerFactory.getLogger(NTPClock.class);
+  private static final AtomicLong COUNTER = new AtomicLong(1);
 
   private static final NTPClock INSTANCE;
 
@@ -42,7 +47,9 @@ public final class NTPClock extends Clock {
     String[] ntpHosts = System.getProperty(prefix + ".servers",
         "0.pool.ntp.org,1.pool.ntp.org,2.pool.ntp.org,3.pool.ntp.org").split(",");
     int resolution = Integer.valueOf(System.getProperty(prefix + ".resolution", "0"));
-    INSTANCE = new NTPClock("ntp-clock", ZoneId.systemDefault(), Arrays.asList(ntpHosts), client, 8_000, resolution,
+
+    String name = "ntp-clock-" + String.valueOf(COUNTER.getAndIncrement());
+    INSTANCE = new NTPClock(name, ZoneId.systemDefault(), Arrays.asList(ntpHosts), client, 8_000, resolution,
         null);
   }
 
@@ -52,6 +59,7 @@ public final class NTPClock extends Clock {
   private volatile long lastNTPUpdateTimeA = System.currentTimeMillis();
   private volatile long lastNTPUpdateTimeB = lastNTPUpdateTimeA;
   private volatile long pollInterval;
+  private volatile long pollIntervalNanos;
   private volatile long cachedNow;
 
   private int nextNtpHost = 0;
@@ -61,6 +69,7 @@ public final class NTPClock extends Clock {
   private final List<String> ntpHosts;
   private final NTPUDPClient client;
   private final int resolution;
+  private final long resolutionNanos;
   private final Flux<TimeInfo> timeUpdates;
 
   private final List<FluxSink<TimeInfo>> timeInfoSinks = new ArrayList<>();
@@ -70,28 +79,41 @@ public final class NTPClock extends Clock {
                   List<String> ntpHosts,
                   NTPUDPClient client,
                   long pollInterval,
-                  int resolution,
-                  Flux<TimeInfo> timeUpdates) {
+                  int resolution) {
+    this(name, zoneId, ntpHosts, client, pollInterval, resolution, null);
+  }
+
+  private NTPClock(String name,
+                   ZoneId zoneId,
+                   List<String> ntpHosts,
+                   NTPUDPClient client,
+                   long pollInterval,
+                   int resolution,
+                   Flux<TimeInfo> timeUpdates) {
     this.zoneId = zoneId;
     this.ntpHosts = ntpHosts;
     this.ntpHostCount = ntpHosts.size();
     this.client = client;
     this.pollInterval = pollInterval;
+    this.pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(pollInterval);
     this.resolution = resolution;
+    this.resolutionNanos = TimeUnit.MILLISECONDS.toNanos(resolution);
 
     if (null == timeUpdates) {
+      String prefix = zoneId.getDisplayName(TextStyle.SHORT, Locale.getDefault()) + "-";
+
       if (resolution > 0) {
         new Thread(() -> {
           for (; ; ) {
-            LockSupport.parkNanos(resolution * 1_000_000);
+            LockSupport.parkNanos(resolutionNanos);
             cachedNow = getNow();
           }
-        }, name + "-cache").start();
+        }, prefix + name + "-cache").start();
       }
 
       new Thread(() -> {
-        while (!Thread.currentThread().isInterrupted()) {
-          LockSupport.parkNanos(pollInterval * 1_000_000);
+        for (; ; ) {
+          LockSupport.parkNanos(pollIntervalNanos);
 
           String ntpHost = (ntpHostCount < 2 ? ntpHosts.get(0) : ntpHosts.get((nextNtpHost++ % ntpHostCount)));
           InetAddress ntpServer;
@@ -120,7 +142,7 @@ public final class NTPClock extends Clock {
 
           sink(ntpTime);
         }
-      }, name).start();
+      }, prefix + name).start();
 
       this.timeUpdates = Flux.<TimeInfo>create(timeInfoSinks::add)
           .doOnNext(timeInfo -> {
@@ -131,9 +153,10 @@ public final class NTPClock extends Clock {
               pollInt = 3; // no less than 8s
             }
             NTPClock.this.pollInterval = (int) (Math.pow(2, pollInt) * 1000);
+            NTPClock.this.pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(pollInterval);
 
             long newNanoTime = System.nanoTime();
-            long newNtpTime = ((newNanoTime - nanoTime) / 1_000_000) + ntpTime;
+            long newNtpTime = TimeUnit.NANOSECONDS.toMillis((newNanoTime - nanoTime)) + ntpTime;
             if (aOrB == 0) {
               nanoTimeB = newNanoTime;
               lastNTPUpdateTimeB = newNtpTime;
@@ -177,7 +200,15 @@ public final class NTPClock extends Clock {
   }
 
   public Clock withZone(ZoneId zone) {
-    return new NTPClock("ntp-clock-" + zone.getId(), zone, ntpHosts, client, pollInterval, resolution, timeUpdates);
+    return new NTPClock(
+        "ntp-clock-" + String.valueOf(COUNTER.getAndIncrement()),
+        zone,
+        ntpHosts,
+        client,
+        pollInterval,
+        resolution,
+        timeUpdates
+    );
   }
 
   @Override
@@ -199,9 +230,9 @@ public final class NTPClock extends Clock {
 
   private long getNow() {
     if (aOrB == 0) {
-      return lastNTPUpdateTimeA + ((System.nanoTime() - nanoTimeA) / 1_000_000);
+      return lastNTPUpdateTimeA + TimeUnit.NANOSECONDS.toMillis((System.nanoTime() - nanoTimeA));
     } else {
-      return lastNTPUpdateTimeB + ((System.nanoTime() - nanoTimeB) / 1_000_000);
+      return lastNTPUpdateTimeB + TimeUnit.NANOSECONDS.toMillis((System.nanoTime() - nanoTimeB));
     }
   }
 

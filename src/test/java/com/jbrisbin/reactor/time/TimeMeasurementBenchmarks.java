@@ -6,7 +6,6 @@ import java.util.List;
 
 import org.apache.commons.net.ntp.NTPUDPClient;
 import org.openjdk.jmh.annotations.Benchmark;
-import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
@@ -18,12 +17,12 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
 
 @State(Scope.Thread)
-public class NTPClockBenchmarks {
+public class TimeMeasurementBenchmarks {
 
-  @Param({ "0", "1", "150"})
-  int resolution;
+  NTPClock clockWithCaching;
+  NTPClock clockWithoutCaching;
 
-  NTPClock clock;
+  volatile long nanoTimeStart;
 
   @Setup
   public void setup() {
@@ -32,25 +31,55 @@ public class NTPClockBenchmarks {
     List<String> ntpHosts = Arrays.asList("0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org");
     int pollIntvl = 8_000;
 
-    clock = new NTPClock(
-        "ntp-clock-benchmark",
+    clockWithCaching = new NTPClock(
+        "cached-ntp-clock-benchmark",
         zoneId,
         ntpHosts,
         client,
         pollIntvl,
-        resolution
+        150
     );
+    clockWithoutCaching = new NTPClock(
+        "uncached-ntp-clock-benchmark",
+        ZoneId.systemDefault(),
+        ntpHosts,
+        client,
+        pollIntvl,
+        0
+    );
+
+    nanoTimeStart = System.nanoTime();
   }
 
   @Benchmark
-  public void ntpClockMillis(Blackhole bh) {
-    long now = clock.millis();
+  public void nanoTimeElapsed(Blackhole bh) {
+    long nanoTimeEnd = System.nanoTime();
+    long elapsed = nanoTimeEnd - nanoTimeStart;
+    bh.consume(elapsed);
+    nanoTimeStart = nanoTimeEnd;
+  }
+
+  @Benchmark
+  public void currentTimeMillis(Blackhole bh) {
+    long now = System.currentTimeMillis();
+    bh.consume(now);
+  }
+
+  @Benchmark
+  public void cachedNtpClockMillis(Blackhole bh) {
+    long now = clockWithCaching.millis();
+    bh.consume(now);
+  }
+
+  @Benchmark
+  public void uncachedNtpClockMillis(Blackhole bh) {
+    long now = clockWithoutCaching.millis();
     bh.consume(now);
   }
 
   public static void main(String... args) throws RunnerException {
     Options opts = new OptionsBuilder()
-        .include(NTPClockBenchmarks.class.getSimpleName())
+        .include(TimeMeasurementBenchmarks.class.getSimpleName())
         .warmupIterations(3)
         .warmupTime(TimeValue.seconds(10))
         .measurementIterations(3)

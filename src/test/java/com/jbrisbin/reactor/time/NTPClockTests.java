@@ -20,7 +20,7 @@ public class NTPClockTests {
     TimeInfo timeInfo = clock.getTimeUpdates()
         .publishOn(Schedulers.elastic())
         .blockFirst();
-    assertNotNull(timeInfo.getAddress().getHostAddress());
+    assertNotNull(timeInfo.getAddress().getHostAddress(), "Got time from a real server");
     Thread.sleep(500);
     assertTrue(System.currentTimeMillis() > timeInfo.getReturnTime(), "Now should be greater than NTP time");
   }
