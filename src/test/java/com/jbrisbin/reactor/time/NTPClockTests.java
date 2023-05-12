@@ -18,7 +18,7 @@ public class NTPClockTests {
   public void getsTimeUpdatesFromPool() throws InterruptedException {
     NTPClock clock = NTPClock.getInstance();
     TimeInfo timeInfo = clock.getTimeUpdates()
-        .publishOn(Schedulers.elastic())
+        .publishOn(Schedulers.boundedElastic())
         .blockFirst();
     assertNotNull(timeInfo.getAddress().getHostAddress(), "Got time from a real server");
     Thread.sleep(500);
