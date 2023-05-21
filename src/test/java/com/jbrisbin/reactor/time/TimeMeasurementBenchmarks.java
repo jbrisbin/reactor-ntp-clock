@@ -28,24 +28,29 @@ public class TimeMeasurementBenchmarks {
   public void setup() {
     NTPUDPClient client = new NTPUDPClient();
     ZoneId zoneId = ZoneId.systemDefault();
-    List<String> ntpHosts = Arrays.asList("0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org");
-    int pollIntvl = 8_000;
+
+    Configuration configuration=new Configuration();
+    configuration.setPollInterval(8_000);
+    configuration.setNtpHosts(new java.lang.String[]{"0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org"});
+    configuration.setResolution(150);
 
     clockWithCaching = new NTPClock(
         "cached-ntp-clock-benchmark",
         zoneId,
-        ntpHosts,
         client,
-        pollIntvl,
-        150
+        configuration
     );
+
+    configuration=new Configuration();
+    configuration.setPollInterval(8_000);
+    configuration.setNtpHosts(new java.lang.String[]{"0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org"});
+    configuration.setResolution(0);
+
     clockWithoutCaching = new NTPClock(
         "uncached-ntp-clock-benchmark",
         ZoneId.systemDefault(),
-        ntpHosts,
         client,
-        pollIntvl,
-        0
+            configuration
     );
 
     nanoTimeStart = System.nanoTime();

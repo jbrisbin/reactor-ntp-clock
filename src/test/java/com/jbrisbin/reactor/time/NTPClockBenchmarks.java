@@ -29,16 +29,17 @@ public class NTPClockBenchmarks {
   public void setup() {
     NTPUDPClient client = new NTPUDPClient();
     ZoneId zoneId = ZoneId.systemDefault();
-    List<String> ntpHosts = Arrays.asList("0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org");
-    int pollIntvl = 8_000;
+
+    Configuration configuration=new Configuration();
+    configuration.setPollInterval(8_000);
+    configuration.setNtpHosts(new java.lang.String[]{"0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org"});
+    configuration.setResolution(resolution);
 
     clock = new NTPClock(
         "ntp-clock-benchmark",
         zoneId,
-        ntpHosts,
         client,
-        pollIntvl,
-        resolution
+        configuration
     );
   }
 

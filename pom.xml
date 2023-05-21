@@ -21,9 +21,66 @@
     <jmh.version>1.36</jmh.version>
     <slf4j.version>2.0.7</slf4j.version>
     <logback-version>1.4.7</logback-version>
+    <elbosso.artifacts.version>2.2.0-SNAPSHOT</elbosso.artifacts.version>
   </properties>
 
+  <repositories>
+    <repository>
+      <id>repsy</id>
+      <name>EL BOSSOs (https://elbosso.github.io/index.html) Maven Repository on Repsy</name>
+      <url>https://repo.repsy.io/mvn/elbosso/default</url>
+    </repository>
+    <repository>
+      <id>central</id>
+      <url>https://repo1.maven.org/maven2</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+    </repository>
+    <!--BeanShell-->
+    <repository>
+      <id>Boundless Repository</id>
+      <url>	https://repo.boundlessgeo.com/main/</url>
+    </repository>
+    <!--ASM-->
+    <repository>
+      <id>Nuiton Repository</id>
+      <url>https://maven.nuiton.org/release/</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+    </repository>
+    <!-- jai -->
+    <repository>
+      <id>JBoss 3rd-party Repository</id>
+      <url>https://repository.jboss.org/nexus/content/repositories/thirdparty-releases/</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+    </repository>
+
+  </repositories>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>de.elbosso</groupId>
+        <artifactId>bom</artifactId>
+        <version>${elbosso.artifacts.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
+    <dependency>
+      <groupId>de.elbosso</groupId>
+      <artifactId>util</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>de.elbosso</groupId>
+      <artifactId>util_annotations</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
@@ -89,10 +146,10 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.10.1</version>
         <configuration>
-          <compilerVersion>1.8</compilerVersion>
+          <compilerVersion>17</compilerVersion>
           <fork>true</fork>
-          <source>1.8</source>
-          <target>1.8</target>
+          <source>17</source>
+          <target>17</target>
           <debug>true</debug>
           <optimize>true</optimize>
           <showDeprecation>true</showDeprecation>

@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
+import de.elbosso.util.lang.jmx.DynamicPOJOMBean;
+import de.elbosso.util.lang.jmx.ModelPojoMBeanCreator;
 import org.apache.commons.net.ntp.NTPUDPClient;
 import org.apache.commons.net.ntp.TimeInfo;
 import org.slf4j.Logger;
@@ -32,6 +34,8 @@ import reactor.core.publisher.FluxSink;
  */
 public final class NTPClock extends Clock {
 
+  private final static org.slf4j.Logger CLASS_LOGGER =org.slf4j.LoggerFactory.getLogger(NTPClock.class);
+  private final static org.slf4j.Logger EXCEPTION_LOGGER =org.slf4j.LoggerFactory.getLogger("ExceptionCatcher");
   private static final Logger LOG = LoggerFactory.getLogger(NTPClock.class);
   private static final AtomicLong COUNTER = new AtomicLong(1);
 
@@ -39,18 +43,24 @@ public final class NTPClock extends Clock {
 
   static {
     NTPUDPClient client = new NTPUDPClient();
-    String prefix = NTPClock.class.getPackage().getName();
+    Configuration CONFIGURATION=new Configuration();
+    //System.out.println(CONFIGURATION.fetch_NextNtpHostToUse()+" "+CONFIGURATION.getNtpHosts()[0]);
+    try
+    {
+      javax.management.MBeanServer mbs = java.lang.management.ManagementFactory.getPlatformMBeanServer();
+      javax.management.ObjectName name = new javax.management.ObjectName("NTPClock:type=configuration");
+      mbs.registerMBean(new DynamicPOJOMBean(CONFIGURATION), name);
+    }
+    catch(java.lang.Exception t)
+    {
+      EXCEPTION_LOGGER.warn(t.getMessage(),t);
+    }
 
-    int timeout = Integer.valueOf(System.getProperty(prefix + ".timeout", "30000"));
-    client.setDefaultTimeout(timeout);
-
-    String[] ntpHosts = System.getProperty(prefix + ".servers",
-        "0.pool.ntp.org,1.pool.ntp.org,2.pool.ntp.org,3.pool.ntp.org").split(",");
-    int resolution = Integer.valueOf(System.getProperty(prefix + ".resolution", "0"));
+    client.setDefaultTimeout(CONFIGURATION.getTimeout());
 
     String name = "ntp-clock-" + String.valueOf(COUNTER.getAndIncrement());
-    INSTANCE = new NTPClock(name, ZoneId.systemDefault(), Arrays.asList(ntpHosts), client, 8_000, resolution,
-        null);
+
+    INSTANCE = new NTPClock(name, ZoneId.systemDefault(), client, CONFIGURATION ,null);
   }
 
   private volatile long aOrB = 0;
@@ -58,54 +68,39 @@ public final class NTPClock extends Clock {
   private volatile long nanoTimeB = nanoTimeA;
   private volatile long lastNTPUpdateTimeA = System.currentTimeMillis();
   private volatile long lastNTPUpdateTimeB = lastNTPUpdateTimeA;
-  private volatile long pollInterval;
-  private volatile long pollIntervalNanos;
   private volatile long cachedNow;
-
-  private int nextNtpHost = 0;
-  private int ntpHostCount = 0;
+  private final Configuration configuration;
 
   private final ZoneId zoneId;
-  private final List<String> ntpHosts;
   private final NTPUDPClient client;
-  private final int resolution;
-  private final long resolutionNanos;
   private final Flux<TimeInfo> timeUpdates;
 
   private final List<FluxSink<TimeInfo>> timeInfoSinks = new ArrayList<>();
 
   public NTPClock(String name,
                   ZoneId zoneId,
-                  List<String> ntpHosts,
                   NTPUDPClient client,
-                  long pollInterval,
-                  int resolution) {
-    this(name, zoneId, ntpHosts, client, pollInterval, resolution, null);
+                  Configuration configuration
+                  ) {
+    this(name, zoneId, client,configuration, null);
   }
 
   private NTPClock(String name,
                    ZoneId zoneId,
-                   List<String> ntpHosts,
                    NTPUDPClient client,
-                   long pollInterval,
-                   int resolution,
+                   Configuration configuration,
                    Flux<TimeInfo> timeUpdates) {
     this.zoneId = zoneId;
-    this.ntpHosts = ntpHosts;
-    this.ntpHostCount = ntpHosts.size();
     this.client = client;
-    this.pollInterval = pollInterval;
-    this.pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(pollInterval);
-    this.resolution = resolution;
-    this.resolutionNanos = TimeUnit.MILLISECONDS.toNanos(resolution);
+    this.configuration=configuration;
 
     if (null == timeUpdates) {
       String prefix = zoneId.getDisplayName(TextStyle.SHORT, Locale.getDefault()) + "-";
 
-      if (resolution > 0) {
+      if (configuration.getResolutionNanos() > 0) {
         new Thread(() -> {
           for (; ; ) {
-            LockSupport.parkNanos(resolutionNanos);
+            LockSupport.parkNanos(configuration.getResolutionNanos());
             cachedNow = getNow();
           }
         }, prefix + name + "-cache").start();
@@ -113,9 +108,9 @@ public final class NTPClock extends Clock {
 
       new Thread(() -> {
         for (; ; ) {
-          LockSupport.parkNanos(pollIntervalNanos);
+          LockSupport.parkNanos(configuration.getPollIntervalNanos());
 
-          String ntpHost = (ntpHostCount < 2 ? ntpHosts.get(0) : ntpHosts.get((nextNtpHost++ % ntpHostCount)));
+          String ntpHost = configuration.fetchNextNtpHostToUse();
           InetAddress ntpServer;
           try {
             ntpServer = InetAddress.getByName(ntpHost);
@@ -152,8 +147,7 @@ public final class NTPClock extends Clock {
             if (pollInt < 3) {
               pollInt = 3; // no less than 8s
             }
-            NTPClock.this.pollInterval = (int) (Math.pow(2, pollInt) * 1000);
-            NTPClock.this.pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(pollInterval);
+            configuration.setPollInterval((int) (Math.pow(2, pollInt) * 1000));
 
             long newNanoTime = System.nanoTime();
             long newNtpTime = TimeUnit.NANOSECONDS.toMillis((newNanoTime - nanoTime)) + ntpTime;
@@ -203,17 +197,15 @@ public final class NTPClock extends Clock {
     return new NTPClock(
         "ntp-clock-" + String.valueOf(COUNTER.getAndIncrement()),
         zone,
-        ntpHosts,
         client,
-        pollInterval,
-        resolution,
+        configuration,
         timeUpdates
     );
   }
 
   @Override
   public long millis() {
-    if (resolution == 0) {
+    if (configuration.getResolution() == 0) {
       return getNow();
     } else {
       return cachedNow;
