@@ -26,9 +26,9 @@
 
   <repositories>
     <repository>
-      <id>repsy</id>
-      <name>EL BOSSOs (https://elbosso.github.io/index.html) Maven Repository on Repsy</name>
-      <url>https://repo.repsy.io/mvn/elbosso/default</url>
+      <id>gitlab</id>
+      <name>EL BOSSOs (https://elbosso.github.io/index.html) Maven Repository</name>
+      <url>https://elbosso.gitlab.io/mvn/repository/</url>
     </repository>
     <repository>
       <id>central</id>
